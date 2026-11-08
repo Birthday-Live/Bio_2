@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Telegram 登录 - WN工具箱</title>
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: #F5F4EF;            /* Claude 米白底 */
+      color: #1F1E1D;
+      font-family: "Styrene B", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .card {
+      background: #FFFFFF;
+      padding: 32px 26px 26px;
+      border-radius: 16px;
+      border: 1px solid #E5E3DA;
+      text-align: center;
+      width: 88%;
+      max-width: 340px;
+      box-shadow: 0 2px 4px rgba(31, 30, 29, 0.04), 0 12px 32px rgba(31, 30, 29, 0.08);
+    }
+
+    h2 {
+      margin: 0 0 10px 0;
+      font-family: "Tiempos Text", Georgia, "Songti SC", "Times New Roman", serif;
+      font-size: 22px;
+      font-weight: 500;
+      letter-spacing: -0.2px;
+      color: #1F1E1D;
+    }
+
+    p.desc {
+      margin: 0 0 26px 0;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #87867F;
+    }
+
+    /* 用户信息展示区（默认隐藏，登录成功后显示） */
+    #profile {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      margin-top: 10px;
+    }
+
+    #avatar {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      border: 2px solid #D97757;            /* Claude 陶土橙 */
+      margin-bottom: 16px;
+      object-fit: cover;
+      background: #F0EEE6;
+    }
+
+    .info-box {
+      width: 100%;
+      background: #FAF9F5;
+      border: 1px solid #E5E3DA;
+      border-radius: 10px;
+      padding: 12px 14px;
+      text-align: left;
+      font-size: 12px;
+      line-height: 1.9;
+      margin-bottom: 14px;
+    }
+
+    .info-box span.label {
+      color: #87867F;
+      display: inline-block;
+      width: 68px;
+    }
+
+    .info-box span.val {
+      color: #1F1E1D;
+      font-weight: 600;
+      word-break: break-all;
+    }
+
+    #status {
+      font-size: 12px;
+      color: #D97757;
+      margin-top: 10px;
+      letter-spacing: 0.1px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <h2>WN 工具箱</h2>
+    <p class="desc" id="sub-title">请使用 Telegram 授权获取账号信息</p>
+
+    <!-- 1. Telegram 登录按钮容器 -->
+    <div id="tg-login-box">
+      <!-- 
+        请将 data-telegram-login 替换为你的 Bot 用户名（不带 @）
+        data-request-access="write" 允许你的 Bot 直接向该 chat_id 发送私信
+      -->
+      <script async src="https://telegram.org/js/telegram-widget.js?22"
+        data-telegram-login="sstoolbot"
+        data-size="large"
+        data-radius="10"
+        data-onauth="onTelegramAuth(user)"
+        data-request-access="write">
+      </script>
+    </div>
+
+    <!-- 2. 登录成功后的用户信息面板 -->
+    <div id="profile">
+      <img id="avatar" src="" alt="Avatar" />
+      <div class="info-box">
+        <div><span class="label">用户名称:</span><span class="val" id="u-name"></span></div>
+        <div><span class="label">Username:</span><span class="val" id="u-username"></span></div>
+        <div><span class="label">Chat ID:</span><span class="val" id="u-chatid"></span></div>
+      </div>
+    </div>
+
+    <div id="status"></div>
+  </div>
+
+  <script>
+    // 【重要配置】填入你的 Cloudflare Worker /auth 接口地址
+    const WORKER_AUTH_URL = "https://tool-login.3986985602.workers.dev/auth";
+
+    async function onTelegramAuth(user) {
+      // 1. 提取你需要的三个核心数据
+      const chatId = user.id; // 在私聊场景下，Telegram 的 user.id 就是 chat_id
+      const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ');
+      const username = user.username ? `@${user.username}` : '未设置';
+      // 如果用户没设头像或隐私受限，提供一个默认极简头像占位
+      const avatarUrl = user.photo_url || 'https://telegram.org/img/t_logo.png';
+
+      // 2. 在页面上立刻展示出来
+      document.getElementById('tg-login-box').style.display = 'none';
+      document.getElementById('sub-title').innerText = 'Telegram 账号已授权';
+      document.getElementById('profile').style.display = 'flex';
+      document.getElementById('avatar').src = avatarUrl;
+      document.getElementById('u-name').innerText = fullName;
+      document.getElementById('u-username').innerText = username;
+      document.getElementById('u-chatid').innerText = chatId;
+
+      const statusEl = document.getElementById('status');
+      statusEl.style.color = '#D97757';
+      statusEl.innerText = '正在同步至云端并生成凭证...';
+
+      // 3. 发送给 Cloudflare Worker 验签并获取 Cookie
+      try {
+        const res = await fetch(WORKER_AUTH_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(user),
+          credentials: 'include' // 关键：允许跨域接收并写入 Worker 的 Set-Cookie
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          statusEl.style.color = '#3F8F5B';   /* 柔和的成功绿 */
+          statusEl.innerText = '登录成功！客户端已同步';
+
+          // 4. 如果你的 Android WebView 注入了原生 Bridge，直接把头像、名称、chat_id 传给原生层
+          if (window.AndroidBridge && window.AndroidBridge.onUserLogin) {
+            window.AndroidBridge.onUserLogin(JSON.stringify({
+              chat_id: chatId,
+              name: fullName,
+              username: user.username || '',
+              avatar: avatarUrl
+            }));
+          }
+        } else {
+          statusEl.style.color = '#C1553D';
+          statusEl.innerText = '云端验签失败: ' + (data.error || 'Unknown');
+        }
+      } catch (err) {
+        statusEl.style.color = '#C1553D';
+        statusEl.innerText = '网络异常: ' + err.message;
+      }
+    }
+  </script>
+</body>
+</html>
